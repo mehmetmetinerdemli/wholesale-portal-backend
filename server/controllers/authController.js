@@ -20,7 +20,10 @@ function generateToken(user) {
 
 // POST /api/auth/register
 async function registerUser(req, res) {
-  const { name, email, password, role = "BUYER", companyName } = req.body;
+  const { name, email, password, companyName } = req.body;
+
+  // 🔒 force self-registered users to BUYER
+  const role = "BUYER";
 
   if (!name || !email || !password) {
     return res
@@ -28,11 +31,8 @@ async function registerUser(req, res) {
       .json({ message: "name, email and password are required" });
   }
 
-  if (!["BUYER", "ADMIN"].includes(role)) {
-    return res.status(400).json({ message: "role must be 'BUYER' or 'ADMIN'" });
-  }
-
   try {
+    // check if email already exists
     const [existingRows] = await db.execute(
       "SELECT id FROM users WHERE email = ?",
       [email]
@@ -41,8 +41,10 @@ async function registerUser(req, res) {
       return res.status(409).json({ message: "Email already registered" });
     }
 
+    // hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
+    // insert new user
     const [result] = await db.execute(
       `
       INSERT INTO users (name, email, password_hash, role, company_name)
@@ -53,6 +55,7 @@ async function registerUser(req, res) {
 
     const insertedId = result.insertId;
 
+    // fetch the inserted user
     const [rows] = await db.execute(
       "SELECT id, name, email, role, company_name AS companyName FROM users WHERE id = ?",
       [insertedId]
@@ -62,6 +65,7 @@ async function registerUser(req, res) {
 
     const token = generateToken(user);
 
+    // frontend expects { user, token }
     return res.status(201).json({ user, token });
   } catch (err) {
     console.error("Error in registerUser:", err);
