@@ -34,7 +34,7 @@ app.use("/api/promotions", promotionsRoutes);
 
 // Simple test route
 app.get("/", (req, res) => {
-  res.json({ message: "Wholesale Tracking API is running 🚚" });
+  res.json({ message: "ELSO - Elite Solutions API is running 🚚" });
 });
 
 const PORT = process.env.PORT || 4000;
