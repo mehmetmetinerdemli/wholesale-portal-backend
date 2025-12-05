@@ -97,7 +97,7 @@ async function createOrder(req, res) {
     });
   }
 
-  // --- CUT-OFF LOGIC ---
+  // --- CUT-OFF 
   try {
     const now = new Date();
 
@@ -180,7 +180,7 @@ async function createOrder(req, res) {
 
       const product = prodRows[0];
 
-      // 🔴 HARD CHECK: don't allow stock to go below 0
+      //don't allow stock to go below 0
       if (product.stock_qty < quantity) {
         await connection.rollback();
         return res.status(400).json({
@@ -192,7 +192,7 @@ async function createOrder(req, res) {
       const lineTotal = unitPrice * quantity;
       totalAmount += lineTotal;
 
-      // decrease stock (we know this won't go below 0 because of the check)
+      // decrease stock 
       await connection.execute(
         `
         UPDATE products
