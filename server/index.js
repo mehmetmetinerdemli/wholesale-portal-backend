@@ -26,8 +26,9 @@ app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/reports", reportsRoutes);
-app.use("/api/automation", automationRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/automation", require("./routes/automationRoutes"));
+
 
 // ⬇️ NEW: mount promotions API
 app.use("/api/promotions", promotionsRoutes);

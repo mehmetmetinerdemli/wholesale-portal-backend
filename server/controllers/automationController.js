@@ -1,55 +1,61 @@
-// controllers/automationController.js
 const db = require("../db");
 
-const CUTOFF_HOUR = parseInt(process.env.CUTOFF_HOUR || "16", 10);
-const CUTOFF_MINUTE = parseInt(process.env.CUTOFF_MINUTE || "0", 10);
+const VALID_TYPES = ["DAILY", "WEEKLY", "MONTHLY"];
 
-// GET /api/automation/daily-catalog
-// For daily emails: returns concise product catalog snapshot.
-async function getDailyCatalog(req, res) {
+async function getPromotions(req, res) {
   try {
+    const type = (req.query.type || "DAILY").toUpperCase();
+
+    if (!VALID_TYPES.includes(type)) {
+      return res.status(400).json({ message: "Invalid promotion type" });
+    }
+
     const [rows] = await db.execute(
       `
       SELECT
         id,
         name,
-        grade,
-        origin,
-        unit,
-        price,
-        stock_qty AS stockQty,
-        is_active AS isActive
-      FROM products
-      WHERE is_active = 1
-      ORDER BY name
-    `
+        description,
+        type,
+        discount_percent AS discountPercent,
+        start_date AS startDate,
+        end_date AS endDate,
+        is_active AS isActive,
+        created_at AS createdAt
+      FROM promotions
+      WHERE type = ?
+        AND is_active = 1
+        AND (start_date IS NULL OR start_date <= NOW())
+        AND (end_date IS NULL OR end_date >= NOW())
+      ORDER BY created_at DESC
+      `,
+      [type]
     );
 
     const now = new Date();
-    const pad = (n) => n.toString().padStart(2, "0");
 
     const payload = {
       generatedAt: now.toISOString(),
-      cutoffTime: `${pad(CUTOFF_HOUR)}:${pad(CUTOFF_MINUTE)}`,
-      productCount: rows.length,
-      products: rows.map((p) => ({
+      promotionType: type,
+      promotionCount: rows.length,
+      promotions: rows.map((p) => ({
         id: p.id,
         name: p.name,
-        grade: p.grade,
-        origin: p.origin,
-        unit: p.unit,
-        price: Number(p.price),
-        stockQty: Number(p.stockQty),
+        description: p.description,
+        discountPercent: Number(p.discountPercent),
+        startDate: p.startDate,
+        endDate: p.endDate,
+        createdAt: p.createdAt,
       })),
     };
 
     res.json(payload);
   } catch (err) {
-    console.error("Error in getDailyCatalog:", err);
-    res.status(500).json({ message: "Error building daily catalog" });
+    console.error("Error in getPromotions:", err);
+    res.status(500).json({ message: "Error loading promotions" });
   }
 }
 
 module.exports = {
-  getDailyCatalog,
+  getPromotions,
 };
