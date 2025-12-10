@@ -1,6 +1,7 @@
 // routes/productsRoutes.js
 const express = require("express");
 const router = express.Router();
+const upload = require('../middleware/upload');
 
 const {
   getAllProducts,
@@ -15,13 +16,32 @@ const {
   requireAdmin,
 } = require("../middleware/authMiddleware");
 
-// Public / buyer: view products
+// Public: buyers can view products
 router.get("/", getAllProducts);
 router.get("/:id", getProductById);
 
 // Admin: manage products
-router.post("/", authenticate, requireAdmin, createProduct);
-router.put("/:id", authenticate, requireAdmin, updateProduct);
-router.delete("/:id", authenticate, requireAdmin, deleteProduct);
+router.post(
+  "/",
+  authenticate,
+  requireAdmin,
+  upload.single('image'),
+  createProduct
+);
+
+router.put(
+  "/:id",
+  authenticate,
+  requireAdmin,
+  upload.single('image'),
+  updateProduct
+);
+
+router.delete(
+  "/:id",
+  authenticate,
+  requireAdmin,
+  deleteProduct
+);
 
 module.exports = router;

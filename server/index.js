@@ -28,6 +28,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/automation", require("./routes/automationRoutes"));
+app.use('/uploads', express.static('uploads'));
+
 
 
 // ⬇️ NEW: mount promotions API

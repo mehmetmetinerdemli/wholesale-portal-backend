@@ -1,7 +1,9 @@
 // controllers/productsController.js
 const db = require("../db");
 
-// GET /api/products
+// ======================================================
+// GET /api/products  (public - buyer)
+// ======================================================
 async function getAllProducts(req, res) {
   try {
     const [rows] = await db.execute(
@@ -15,6 +17,7 @@ async function getAllProducts(req, res) {
         price,
         stock_qty AS stockQty,
         is_active AS isActive,
+        image_url AS image_url,
         created_at AS createdAt
       FROM products
       WHERE is_active = 1
@@ -29,7 +32,9 @@ async function getAllProducts(req, res) {
   }
 }
 
+// ======================================================
 // GET /api/products/:id
+// ======================================================
 async function getProductById(req, res) {
   const id = parseInt(req.params.id, 10);
 
@@ -49,6 +54,7 @@ async function getProductById(req, res) {
         price,
         stock_qty AS stockQty,
         is_active AS isActive,
+        image_url AS image_url,
         created_at AS createdAt
       FROM products
       WHERE id = ? AND is_active = 1
@@ -67,122 +73,87 @@ async function getProductById(req, res) {
   }
 }
 
-// POST /api/products  (admin only, we'll protect in routes)
-async function createProduct(req, res) {
-  const { name, grade, origin, unit, price, stockQty } = req.body;
-
-  if (!name || !grade || !origin || !unit || price == null || stockQty == null) {
-    return res.status(400).json({
-      message: "name, grade, origin, unit, price and stockQty are required",
-    });
-  }
-
+// ======================================================
+// POST /api/products (admin only)
+// ======================================================
+const createProduct = async (req, res) => {
   try {
-    const [result] = await db.execute(
+    const { name, unit, grade, origin, price, stock_qty, is_active } = req.body;
+
+    const image_url = req.file ? `/uploads/${req.file.filename}` : null;
+
+    const [result] = await db.query(
       `
-      INSERT INTO products (name, grade, origin, unit, price, stock_qty)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `,
-      [name, grade, origin, unit, price, stockQty]
+      INSERT INTO products 
+        (name, unit, grade, origin, price, stock_qty, is_active, image_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [name, unit, grade, origin, price, stock_qty, is_active, image_url]
     );
 
-    const id = result.insertId;
-
-    const [rows] = await db.execute(
-      `
-      SELECT
-        id,
-        name,
-        grade,
-        origin,
-        unit,
-        price,
-        stock_qty AS stockQty,
-        is_active AS isActive,
-        created_at AS createdAt
-      FROM products
-      WHERE id = ?
-    `,
-      [id]
-    );
-
-    res.status(201).json(rows[0]);
+    res.json({
+      id: result.insertId,
+      message: "Product created",
+      image_url
+    });
   } catch (err) {
     console.error("Error in createProduct:", err);
-    res.status(500).json({ message: "Error creating product" });
+    res.status(500).json({ error: err.message });
   }
-}
+};
 
-// PUT /api/products/:id  (admin only)
-async function updateProduct(req, res) {
-  const id = parseInt(req.params.id, 10);
-  const { name, grade, origin, unit, price, stockQty, isActive } = req.body;
-
-  if (Number.isNaN(id)) {
-    return res.status(400).json({ message: "Invalid product id" });
-  }
-
+// ======================================================
+// PUT /api/products/:id (admin only)
+// ======================================================
+const updateProduct = async (req, res) => {
   try {
-    // First make sure product exists
-    const [existingRows] = await db.execute(
-      "SELECT id FROM products WHERE id = ?",
-      [id]
-    );
-    if (existingRows.length === 0) {
-      return res.status(404).json({ message: "Product not found" });
+    const { name, unit, grade, origin, price, stock_qty, is_active } = req.body;
+
+    let image_url = null;
+    if (req.file) {
+      image_url = `/uploads/${req.file.filename}`;
     }
 
-    await db.execute(
-      `
-      UPDATE products
-      SET
-        name = COALESCE(?, name),
-        grade = COALESCE(?, grade),
-        origin = COALESCE(?, origin),
-        unit = COALESCE(?, unit),
-        price = COALESCE(?, price),
-        stock_qty = COALESCE(?, stock_qty),
-        is_active = COALESCE(?, is_active)
-      WHERE id = ?
-    `,
-      [
-        name ?? null,
-        grade ?? null,
-        origin ?? null,
-        unit ?? null,
-        price ?? null,
-        stockQty ?? null,
-        isActive ?? null,
-        id,
-      ]
-    );
+    // Build SQL dynamically
+    let sql = `
+      UPDATE products 
+      SET name=?, unit=?, grade=?, origin=?, price=?, stock_qty=?, is_active=?
+    `;
 
-    const [rows] = await db.execute(
-      `
-      SELECT
-        id,
-        name,
-        grade,
-        origin,
-        unit,
-        price,
-        stock_qty AS stockQty,
-        is_active AS isActive,
-        created_at AS createdAt
-      FROM products
-      WHERE id = ?
-    `,
-      [id]
-    );
+    const fields = [
+      name,
+      unit,
+      grade,
+      origin,
+      price,
+      stock_qty,
+      is_active
+    ];
 
-    res.json(rows[0]);
+    // Only update image_url if a new file was uploaded
+    if (image_url) {
+      sql += `, image_url=?`;
+      fields.push(image_url);
+    }
+
+    sql += ` WHERE id=?`;
+    fields.push(req.params.id);
+
+    await db.query(sql, fields);
+
+    res.json({
+      message: "Product updated",
+      image_url: image_url || null
+    });
   } catch (err) {
     console.error("Error in updateProduct:", err);
-    res.status(500).json({ message: "Error updating product" });
+    res.status(500).json({ error: err.message });
   }
-}
+};
 
+// ======================================================
 // DELETE /api/products/:id  (admin only - soft delete)
+// ======================================================
 async function deleteProduct(req, res) {
   const id = parseInt(req.params.id, 10);
 
@@ -199,7 +170,7 @@ async function deleteProduct(req, res) {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    // soft delete: set is_active = 0
+    // Soft delete
     await db.execute("UPDATE products SET is_active = 0 WHERE id = ?", [id]);
 
     res.json({ message: "Product deactivated" });
@@ -209,6 +180,9 @@ async function deleteProduct(req, res) {
   }
 }
 
+// ======================================================
+// EXPORTS
+// ======================================================
 module.exports = {
   getAllProducts,
   getProductById,

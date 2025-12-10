@@ -4,7 +4,7 @@ const CUTOFF_HOUR = parseInt(process.env.CUTOFF_HOUR || "16", 10);
 const CUTOFF_MINUTE = parseInt(process.env.CUTOFF_MINUTE || "0", 10);
 
 
-// helper: load items for a set of order IDs
+// helper: load items for a set of order IDs WITH IMAGE URL
 async function loadItemsForOrders(orderIds) {
   if (orderIds.length === 0) return {};
 
@@ -16,6 +16,7 @@ async function loadItemsForOrders(orderIds) {
       oi.order_id AS orderId,
       oi.product_id AS productId,
       p.name AS productName,
+      p.image_url AS imageUrl,
       oi.quantity,
       oi.unit_price AS unitPrice
     FROM order_items oi
@@ -32,6 +33,7 @@ async function loadItemsForOrders(orderIds) {
       id: row.id,
       productId: row.productId,
       productName: row.productName,
+      imageUrl: row.imageUrl,     // <-- ADDED
       quantity: row.quantity,
       unitPrice: Number(row.unitPrice),
     });
@@ -39,7 +41,8 @@ async function loadItemsForOrders(orderIds) {
   return byOrder;
 }
 
-// GET /api/orders  (we’ll protect this as admin-only in the routes)
+
+// GET /api/orders  (admin only)
 async function getAllOrders(req, res) {
   try {
     const [rows] = await db.execute(
@@ -81,9 +84,10 @@ async function getAllOrders(req, res) {
   }
 }
 
-// POST /api/orders  (buyer must be logged in)
+
+// POST /api/orders
 async function createOrder(req, res) {
-  const user = req.user; // set by auth middleware
+  const user = req.user;
 
   if (!user) {
     return res.status(401).json({ message: "Authentication required" });
@@ -97,7 +101,7 @@ async function createOrder(req, res) {
     });
   }
 
-  // --- CUT-OFF 
+  // cut-off check
   try {
     const now = new Date();
 
@@ -180,7 +184,6 @@ async function createOrder(req, res) {
 
       const product = prodRows[0];
 
-      //don't allow stock to go below 0
       if (product.stock_qty < quantity) {
         await connection.rollback();
         return res.status(400).json({
@@ -192,7 +195,6 @@ async function createOrder(req, res) {
       const lineTotal = unitPrice * quantity;
       totalAmount += lineTotal;
 
-      // decrease stock 
       await connection.execute(
         `
         UPDATE products
@@ -209,7 +211,6 @@ async function createOrder(req, res) {
       });
     }
 
-    // insert order
     const [orderResult] = await connection.execute(
       `
       INSERT INTO orders (buyer_id, status, delivery_date, total_amount)
@@ -220,7 +221,6 @@ async function createOrder(req, res) {
 
     const orderId = orderResult.insertId;
 
-    // insert order_items
     for (const item of normalizedItems) {
       await connection.execute(
         `
@@ -260,8 +260,7 @@ async function createOrder(req, res) {
 }
 
 
-
-// PATCH /api/orders/:id/status  (admin)
+// PATCH /api/orders/:id/status (admin)
 async function updateOrderStatus(req, res) {
   const id = parseInt(req.params.id, 10);
   const { status } = req.body;
@@ -274,9 +273,7 @@ async function updateOrderStatus(req, res) {
 
   if (!status || !allowedStatuses.includes(status)) {
     return res.status(400).json({
-      message: `Status is required and must be one of: ${allowedStatuses.join(
-        ", "
-      )}`,
+      message: `Status must be one of: ${allowedStatuses.join(", ")}`,
     });
   }
 
@@ -294,7 +291,6 @@ async function updateOrderStatus(req, res) {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    // fetch updated order + items
     const [orderRows] = await db.execute(
       `
       SELECT
@@ -336,12 +332,12 @@ async function updateOrderStatus(req, res) {
     res.status(500).json({ message: "Error updating order status" });
   }
 }
-// GET /api/orders/my  (buyer: see their own orders)
+
+
+// GET /api/orders/my
 async function getMyOrders(req, res) {
   const user = req.user;
-  if (!user) {
-    return res.status(401).json({ message: "Authentication required" });
-  }
+  if (!user) return res.status(401).json({ message: "Authentication required" });
 
   try {
     const [rows] = await db.execute(
@@ -391,5 +387,4 @@ module.exports = {
   getMyOrders,
   createOrder,
   updateOrderStatus,
-
 };
