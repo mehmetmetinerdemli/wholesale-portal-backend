@@ -1,31 +1,36 @@
 // controllers/productsController.js
 const db = require("../db");
 
+// Helper: map DB row to frontend shape
+function mapProduct(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    grade: row.grade,
+    origin: row.origin,
+    unit: row.unit,
+    price: Number(row.price),
+    stockQty: Number(row.stock_qty),
+    isActive: row.is_active === 1,
+    image_url: row.image_url,
+    createdAt: row.created_at
+  };
+}
+
 // ======================================================
-// GET /api/products  (public - buyer)
+// GET /api/products  (buyers see only active, admins see all)
 // ======================================================
 async function getAllProducts(req, res) {
   try {
-    const [rows] = await db.execute(
-      `
-      SELECT
-        id,
-        name,
-        grade,
-        origin,
-        unit,
-        price,
-        stock_qty AS stockQty,
-        is_active AS isActive,
-        image_url AS image_url,
-        created_at AS createdAt
-      FROM products
-      WHERE is_active = 1
-      ORDER BY name
-    `
-    );
+    const isAdmin = req.user && req.user.role === "ADMIN";
 
-    res.json(rows);
+    const sql = isAdmin
+      ? `SELECT * FROM products ORDER BY name`
+      : `SELECT * FROM products WHERE is_active = 1 ORDER BY name`;
+
+    const [rows] = await db.execute(sql);
+
+    res.json(rows.map(mapProduct));
   } catch (err) {
     console.error("Error in getAllProducts:", err);
     res.status(500).json({ message: "Error fetching products" });
@@ -36,37 +41,15 @@ async function getAllProducts(req, res) {
 // GET /api/products/:id
 // ======================================================
 async function getProductById(req, res) {
-  const id = parseInt(req.params.id, 10);
-
-  if (Number.isNaN(id)) {
-    return res.status(400).json({ message: "Invalid product id" });
-  }
+  const id = Number(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ message: "Invalid product id" });
 
   try {
-    const [rows] = await db.execute(
-      `
-      SELECT
-        id,
-        name,
-        grade,
-        origin,
-        unit,
-        price,
-        stock_qty AS stockQty,
-        is_active AS isActive,
-        image_url AS image_url,
-        created_at AS createdAt
-      FROM products
-      WHERE id = ? AND is_active = 1
-    `,
-      [id]
-    );
+    const [rows] = await db.execute(`SELECT * FROM products WHERE id = ?`, [id]);
 
-    if (rows.length === 0) {
-      return res.status(404).json({ message: "Product not found" });
-    }
+    if (rows.length === 0) return res.status(404).json({ message: "Product not found" });
 
-    res.json(rows[0]);
+    res.json(mapProduct(rows[0]));
   } catch (err) {
     console.error("Error in getProductById:", err);
     res.status(500).json({ message: "Error fetching product" });
@@ -76,113 +59,138 @@ async function getProductById(req, res) {
 // ======================================================
 // POST /api/products (admin only)
 // ======================================================
-const createProduct = async (req, res) => {
+async function createProduct(req, res) {
   try {
-    const { name, unit, grade, origin, price, stock_qty, is_active } = req.body;
-
-    const image_url = req.file ? `/uploads/${req.file.filename}` : null;
-
-    const [result] = await db.query(
-      `
-      INSERT INTO products 
-        (name, unit, grade, origin, price, stock_qty, is_active, image_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [name, unit, grade, origin, price, stock_qty, is_active, image_url]
-    );
-
-    res.json({
-      id: result.insertId,
-      message: "Product created",
-      image_url
-    });
-  } catch (err) {
-    console.error("Error in createProduct:", err);
-    res.status(500).json({ error: err.message });
-  }
-};
-
-// ======================================================
-// PUT /api/products/:id (admin only)
-// ======================================================
-const updateProduct = async (req, res) => {
-  try {
-    const { name, unit, grade, origin, price, stock_qty, is_active } = req.body;
-
-    let image_url = null;
-    if (req.file) {
-      image_url = `/uploads/${req.file.filename}`;
-    }
-
-    // Build SQL dynamically
-    let sql = `
-      UPDATE products 
-      SET name=?, unit=?, grade=?, origin=?, price=?, stock_qty=?, is_active=?
-    `;
-
-    const fields = [
+    const {
       name,
       unit,
       grade,
       origin,
       price,
-      stock_qty,
-      is_active
-    ];
+      stockQty,
+      isActive
+    } = req.body;
 
-    // Only update image_url if a new file was uploaded
-    if (image_url) {
-      sql += `, image_url=?`;
-      fields.push(image_url);
-    }
+    const image_url = req.file ? `/uploads/${req.file.filename}` : null;
 
-    sql += ` WHERE id=?`;
-    fields.push(req.params.id);
-
-    await db.query(sql, fields);
-
-    res.json({
-      message: "Product updated",
-      image_url: image_url || null
-    });
-  } catch (err) {
-    console.error("Error in updateProduct:", err);
-    res.status(500).json({ error: err.message });
-  }
-};
-
-// ======================================================
-// DELETE /api/products/:id  (admin only - soft delete)
-// ======================================================
-async function deleteProduct(req, res) {
-  const id = parseInt(req.params.id, 10);
-
-  if (Number.isNaN(id)) {
-    return res.status(400).json({ message: "Invalid product id" });
-  }
-
-  try {
-    const [existingRows] = await db.execute(
-      "SELECT id FROM products WHERE id = ?",
-      [id]
+    const [result] = await db.execute(
+      `
+      INSERT INTO products
+        (name, unit, grade, origin, price, stock_qty, is_active, image_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+      [
+        name,
+        unit,
+        grade,
+        origin,
+        Number(price),
+        Number(stockQty),
+        isActive ? 1 : 0,
+        image_url
+      ]
     );
-    if (existingRows.length === 0) {
-      return res.status(404).json({ message: "Product not found" });
-    }
 
-    // Soft delete
-    await db.execute("UPDATE products SET is_active = 0 WHERE id = ?", [id]);
+    const [rows] = await db.execute(`SELECT * FROM products WHERE id = ?`, [
+      result.insertId,
+    ]);
 
-    res.json({ message: "Product deactivated" });
+    res.json(mapProduct(rows[0]));
   } catch (err) {
-    console.error("Error in deleteProduct:", err);
-    res.status(500).json({ message: "Error deleting product" });
+    console.error("Error in createProduct:", err);
+    res.status(500).json({ message: "Failed to create product" });
   }
 }
 
 // ======================================================
-// EXPORTS
+// PUT /api/products/:id (admin only)
 // ======================================================
+async function updateProduct(req, res) {
+  const id = Number(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ message: "Invalid product id" });
+
+  const {
+    name,
+    grade,
+    origin,
+    unit,
+    price,
+    stockQty,
+    isActive
+  } = req.body;
+
+  try {
+    // First: build base SQL
+    let sql = `
+      UPDATE products
+      SET
+        name = ?,
+        grade = ?,
+        origin = ?,
+        unit = ?,
+        price = ?,
+        stock_qty = ?,
+        is_active = ?
+    `;
+
+    const params = [
+      name,
+      grade,
+      origin,
+      unit,
+      Number(price),
+      Number(stockQty),
+      isActive ? 1 : 0
+    ];
+
+    // If new image uploaded → update it
+    if (req.file) {
+      sql += `, image_url = ?`;
+      params.push(`/uploads/${req.file.filename}`);
+    }
+
+    sql += ` WHERE id = ?`;
+    params.push(id);
+
+    const [result] = await db.execute(sql, params);
+
+    if (result.affectedRows === 0)
+      return res.status(404).json({ message: "Product not found" });
+
+    const [rows] = await db.execute(`SELECT * FROM products WHERE id = ?`, [
+      id,
+    ]);
+
+    res.json(mapProduct(rows[0]));
+  } catch (err) {
+    console.error("Error updating product:", err);
+    res.status(500).json({ message: "Failed to update product" });
+  }
+}
+
+// ======================================================
+// DELETE /api/products/:id  (soft delete)
+// ======================================================
+async function deleteProduct(req, res) {
+  const id = Number(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ message: "Invalid product id" });
+
+  try {
+    const [result] = await db.execute(
+      `UPDATE products SET is_active = 0 WHERE id = ?`,
+      [id]
+    );
+
+    if (result.affectedRows === 0)
+      return res.status(404).json({ message: "Product not found" });
+
+    res.json({ message: "Product deactivated" });
+  } catch (err) {
+    console.error("Error in deleteProduct:", err);
+    res.status(500).json({ message: "Failed to delete product" });
+  }
+}
+
 module.exports = {
   getAllProducts,
   getProductById,
